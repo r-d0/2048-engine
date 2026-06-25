@@ -17,6 +17,7 @@ void tick(){
 
 int main(){
 	init_ncurses();
+	precompute_rows();
 	init_game();
 	while (running){
 		tick();

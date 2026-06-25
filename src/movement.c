@@ -5,152 +5,86 @@
 char mask = 0xf;
 int auto_on = 0;
 
-int DEPTH = 5;
-//#define to2048 
+int DEPTH = 7;
+ #define to2048 
 
-typedef struct{
-	u64* b;
-	char square, pos, tile, free_cell, merge_val, move;
-}MergeInfo;
+u16 left_table[65536];
 
-static void slide(MergeInfo* m){
-	// swad = 0123
-	*m->b &= ~((u64)mask << m->pos);
-	char dest = 0;
-	switch(m->move){
-		case 0:
-			dest = m->square + (m->free_cell << 2);
-			break;
-		case 1:
-			dest = m->square - (m->free_cell << 2);
-			break;
-		case 2:
-			dest = m->square - m->free_cell;
-			break;
-		case 3:
-			dest = m->square + m->free_cell;
-			break;
-		default:
-			return;
+void precompute_rows(){
+	for (int  row = 0; row < 65536; row++){
+		u8 tiles[] = {
+			row & 0xf,
+			(row >> 4) & 0xf,
+			(row >> 8) & 0xf,
+			(row >> 12) & 0xf,
+		};
+		u8 out[4] = {0};
+		int free = 0;
+		int merged[4] = {0};
+		for (int i = 0; i < 4; i++){
+			if (!tiles[i]) continue;
+			if (free && out[free-1] == tiles[i] && !merged[free-1]){
+				out[free-1]++;
+				merged[free-1] = 1;
+			}else
+				out[free++] = tiles[i];
+		}
+		left_table[row] = out[0] | out[1] << 4 | out[2] << 8 | out[3] << 12;
 	}
-	*m->b |= (u64)m->tile << (dest << 2);
-
 }
 
-static int merge(MergeInfo* m){
-	if (!(m->merge_val && m->merge_val == m->tile))
-		return 0;
-	char dest = 0;
-	switch(m->move){
-		case 0:
-			dest = m->square + ((m->free_cell + 1) << 2);
-			break;
-		case 1:
-			dest = m->square - ((m->free_cell + 1) << 2);
-			break;
-		case 2:
-			dest = m->square - (m->free_cell + 1);
-			break;
-		case 3:
-			dest = m->square + (m->free_cell + 1);
-			break;
-		default:
-			return 0;
-	}
-	*m->b &= ~(((u64)mask << m->pos) | (u64)mask << (dest<<2));
-	*m->b |= (u64)++m->tile << (dest << 2);
-	m->free_cell++;
-	return m->tile;
+u16 reverse_row(u16 row){
+	return (row >> 12) | ((row >> 4) & 0xf0) | ((row << 4) & 0xf00) | (row << 12);
+}
+
+u64 transpose(u64 b) {
+    u64 t = b;
+    t = (t & 0xf0f00f0ff0f00f0fULL)
+      | ((t & 0x0000f0f00000f0f0ULL) << 12)
+      | ((t & 0x0f0f00000f0f0000ULL) >> 12);
+    t = (t & 0xff00ff0000ff00ffULL)
+      | ((t & 0x00000000ff00ff00ULL) << 24)
+      | ((t & 0x00ff00ff00000000ULL) >> 24);
+    return t;
 }
 
 
-static u64 make_move(u64 b, int move){
-	MergeInfo m;
-	m.b = &b;
-	m.move = move;
+
+u64 move_left(u64 b){
+	u64 result = 0;
+	for (int row = 0; row < 4; row++){
+		result |= (u64)left_table[(b >> (row * 16)) & 0xffff] << (row * 16);
+	}
+	return result;
+}
+
+u64 move_right(u64 b) {
+    u64 result = 0;
+    for (int row = 0; row < 4; row++) {
+        u16 rev = reverse_row((b >> (row*16)) & 0xffff);
+        result |= (u64)reverse_row(left_table[rev]) << (row*16);
+    }
+    return result;
+}
+
+u64 move_up(u64 b) {
+    u64 t = transpose(b);
+    return transpose(move_left(t));
+}
+
+u64 move_down(u64 b) {
+    u64 t = transpose(b);
+    return transpose(move_right(t));
+}
+
+u64 connect_move(u64 b, int move){
 	switch(move){
-		case 0:
-			for (int col = 0; col < 4; col++){
-				m.free_cell = 0;
-				m.merge_val = 0;
-				for (int row = 3; row >= 0; row--){
-					m.square = row << 2 | col;
-					m.pos = m.square << 2;
-					m.tile = (*m.b >> m.pos) & mask;
-					if (m.tile){
-						int increase = merge(&m);
-						if (!increase && m.free_cell){
-							slide(&m);
-						}
-						m.merge_val = m.tile;
-					}else{
-						m.free_cell++;
-					}
-				}
-			}
-			break;
-		case 1:
-			for (int col = 0; col < 4; col++){
-				m.free_cell = 0;
-				m.merge_val = 0;
-				for (int row = 0; row < 4; row++){
-					m.square = row << 2 | col;
-					m.pos = m.square << 2;
-					m.tile = (*m.b >> m.pos) & mask;
-					if (m.tile){
-						int increase = merge(&m);
-						if (!increase && m.free_cell){
-							slide(&m);
-						}
-						m.merge_val = m.tile;
-					}else{
-						m.free_cell++;
-					}
-				}
-			}
-			break;
-		case 2:
-			for (int row = 0; row < 4; row++){
-				m.free_cell = 0;
-				m.merge_val = 0;
-				for (int col = 0; col < 4; col++){
-					m.square = row << 2 | col;
-					m.pos = m.square << 2;
-					m.tile = (*m.b >> m.pos) & mask;
-					if (m.tile){
-						int increase = merge(&m);
-						if (!increase && m.free_cell){
-							slide(&m);
-						}
-						m.merge_val = m.tile;
-					}else{
-						m.free_cell++;
-					}
-				}
-			}
-			break;
-		case 3:
-			for (int row = 0; row < 4; row++){
-				m.free_cell = 0;
-				m.merge_val = 0;
-				for (int col = 3; col >= 0; col--){
-					m.square = row << 2 | col;
-					m.pos = m.square << 2;
-					m.tile = (*m.b >> m.pos) & mask;
-					if (m.tile){
-						int increase = merge(&m);
-						if (!increase && m.free_cell){
-							slide(&m);
-						}
-						m.merge_val = m.tile;
-					}else{
-						m.free_cell++;
-					}
-				}
-			}
-			break;
+		case 0: return  move_down(b);
+		case 1: return  move_up(b);
+		case 2: return  move_left(b);
+		case 3: return  move_right(b);
+		default: return b;
 	}
-	return b;
 }
 
 //TODO: game_over, evaluate, trymove, placetile
@@ -316,7 +250,7 @@ float engine(u64 b, int depth, int is_player){
 	if (is_player){
 		float best = -(float)(0u - 1);
 		for (int move = 0; move < 4; move++){
-			u64 newboard = make_move(b, move);
+			u64 newboard = connect_move(b, move);
 			if (newboard == b)
 				continue;
 			float score = engine(newboard, depth - 1, 0);
@@ -349,7 +283,7 @@ static int best_move(u64 b, int depth){
 	int best = 0;
 	float best_score = -(float)(0u-1);
 	for (int move = 0; move < 4; move++){
-		u64 newboard = make_move(b, move);
+		u64 newboard = connect_move(b, move);
 		if (newboard == b)
 			continue;
 		float score = engine(newboard, depth-1, 0);
@@ -363,17 +297,17 @@ static int best_move(u64 b, int depth){
 
 
 void try_auto(){
-	start_frame = clock();
+	clock_gettime(CLOCK_MONOTONIC, &start_frame);
 	int best = best_move(board,DEPTH);
-	board = make_move(board, best);
+	board = connect_move(board, best);
 	score = get_game_score();
 	add_random();
+	clock_gettime(CLOCK_MONOTONIC, &end);
 	usleep(10000);
-	end = clock();
 }
 void handle_movement(){
 	if ((unsigned int)key - 258 < 4){
-		board = make_move(board,key - 258);
+		board = connect_move(board,key - 258);
 		score = get_game_score();
 		add_random();
 	}
@@ -381,7 +315,7 @@ void handle_movement(){
 		auto_on = !auto_on;
 		nodelay(stdscr, auto_on);
 		if (auto_on)
-			start = clock();
+			clock_gettime(CLOCK_MONOTONIC, &start);
 	}
 	if (auto_on){
 #ifdef to2048

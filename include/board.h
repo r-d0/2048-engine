@@ -5,10 +5,9 @@
 
 #define u64 uint64_t
 #define u16 uint16_t
+#define u8 uint8_t
 
-extern clock_t start;
-extern clock_t start_frame;
-extern clock_t end;
+extern struct timespec start, start_frame, end;
 
 extern u64 board;
 extern int score;

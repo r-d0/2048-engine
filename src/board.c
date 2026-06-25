@@ -4,9 +4,10 @@
 u64 board;
 int natural_4s = 0;
 int score;
-clock_t start;
-clock_t start_frame;
-clock_t end;
+struct timespec start, end, start_frame;
+
+#define TDIFF(a, b) ((b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9)
+
 
 void draw_board(){
 	char x, y;
@@ -32,7 +33,7 @@ void draw_board(){
 		y += 3;
 	}
 	mvprintw(0,0,"Score: %d",score);
-	mvprintw(24,0,"Time: %0.6lf, dt: %0.6lf",(double)(end - start)/CLOCKS_PER_SEC, (double)(end - start_frame)/CLOCKS_PER_SEC);
+	mvprintw(24,0,"Time: %0.6lf, dt: %0.6lf",TDIFF(start, end), TDIFF(start_frame, end));
 }
 
 u16 scan_empty(u64 b){
