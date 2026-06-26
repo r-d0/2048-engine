@@ -3,10 +3,9 @@
 #include <unistd.h>
 
 char mask = 0xf;
-int auto_on = 0;
 
-int DEPTH = 7;
- #define to2048 
+int MAX_DEPTH = 3;
+int stop2048 = 0;
 
 u16 left_table[65536];
 
@@ -205,7 +204,6 @@ static float max_tile_corner(u64 b){
 	return 0.0f;
 }
 
-#ifdef to2048
 static int game_won (u64 b){
 	for (int i = 0; i < 16; i++){
 		if ((b & mask) == 0xb)
@@ -214,7 +212,6 @@ static int game_won (u64 b){
 	}
 	return 0;
 }
-#endif
 
 static float evaluate(u64 b){
 	float result = 0;
@@ -298,7 +295,7 @@ static int best_move(u64 b, int depth){
 
 void try_auto(){
 	clock_gettime(CLOCK_MONOTONIC, &start_frame);
-	int best = best_move(board,DEPTH);
+	int best = best_move(board,MAX_DEPTH);
 	board = connect_move(board, best);
 	score = get_game_score();
 	add_random();
@@ -318,12 +315,7 @@ void handle_movement(){
 			clock_gettime(CLOCK_MONOTONIC, &start);
 	}
 	if (auto_on){
-#ifdef to2048
-#define cond game_over(board) || game_won(board)
-#else
-#define cond game_over(board)
-#endif
-		if (cond)
+		if ((stop2048 && game_won(board)) || game_over(board))
 			auto_on = 0;
 		else
 			try_auto();
