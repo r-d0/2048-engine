@@ -4,7 +4,18 @@
 
 char mask = 0xf;
 
-int MAX_DEPTH = 3;
+struct timespec search_start;
+
+static inline double elapsed_ms(struct timespec start) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - start.tv_sec) * 1000.0 +
+           (now.tv_nsec - start.tv_nsec) / 1e6;
+}
+
+int MAX_DEPTH = 10;
+int SEARCH_MS = 100;
+int CAP_ENGINE = 1;
 int stop2048 = 0;
 
 u16 left_table[65536];
@@ -240,8 +251,15 @@ static int get_game_score(){
 	return calc;
 }
 
+static int timed_out = 0;
+
 
 float engine(u64 b, int depth, int is_player){
+	if (CAP_ENGINE && timed_out) return 0;
+	if (CAP_ENGINE && elapsed_ms(search_start) > SEARCH_MS) {
+		timed_out = 1;
+		return 0;
+	}
 	if (depth == 0 || game_over(b))
 		return evaluate(b);
 	if (is_player){
@@ -278,6 +296,7 @@ float engine(u64 b, int depth, int is_player){
 
 static int best_move(u64 b, int depth){
 	int best = 0;
+	depth_reached = depth;
 	float best_score = -(float)(0u-1);
 	for (int move = 0; move < 4; move++){
 		u64 newboard = connect_move(b, move);
@@ -293,15 +312,33 @@ static int best_move(u64 b, int depth){
 }
 
 
+int best_move_timed(u64 b){
+	clock_gettime(CLOCK_MONOTONIC, &search_start);
+	int best = 0;
+	for (int depth = 1; depth < MAX_DEPTH; depth++){
+		timed_out = 0;
+		int result = best_move(b, depth);
+		if (timed_out) break;
+		best = result;
+		depth_reached = depth;
+	}
+	return best;
+}
+
 void try_auto(){
 	clock_gettime(CLOCK_MONOTONIC, &start_frame);
-	int best = best_move(board,MAX_DEPTH);
+	int best;
+	if (CAP_ENGINE)
+		best= best_move_timed(board);
+	else
+		best = best_move(board, MAX_DEPTH);
 	board = connect_move(board, best);
 	score = get_game_score();
 	add_random();
 	clock_gettime(CLOCK_MONOTONIC, &end);
 	usleep(10000);
 }
+
 void handle_movement(){
 	if ((unsigned int)key - 258 < 4){
 		board = connect_move(board,key - 258);

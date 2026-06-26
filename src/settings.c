@@ -4,13 +4,17 @@ typedef enum{
 	S_START,
 	S_STOP2048,
 	S_DEPTH,
+	S_CAPTIME,
+	S_TIMELIMIT,
 	S_EXIT
 }Selection;
 
 static Selection selection = 0;
-static int buttons = 4;
+static int buttons = 6;
 
 static int locked = 0;
+
+
 
 
 void draw_settings(){
@@ -28,12 +32,22 @@ void draw_settings(){
 		
 	if (selection == S_DEPTH)
 		attron(COLOR_PAIR(1));
-	mvprintw(4,0, "Engine Depth: %d%s", MAX_DEPTH, MAX_DEPTH > 7 ? "\t\tWARN: SLOW SPEEDS ABOVE DEPTH 7" : " ");
+	mvprintw(4,0, "Engine Depth: %d%s", MAX_DEPTH, MAX_DEPTH > 7 ? CAP_ENGINE ? " " : "\t\tWARN: CAP TIME ABOVE DEPTH 7" : " ");
 	attroff(COLOR_PAIR(1));
 
+	if (selection == S_CAPTIME)
+		attron(COLOR_PAIR(1));
+	mvprintw(5,0, "Do engine time limit: %s", CAP_ENGINE ? "Yes" : "No");
+	attroff(COLOR_PAIR(1));
+
+	if (selection == S_TIMELIMIT)
+		attron(COLOR_PAIR(1));
+	mvprintw(6,0, "Time limit: %dms",SEARCH_MS  );
+
+	attroff(COLOR_PAIR(1));
 	if (selection == S_EXIT)
 		attron(COLOR_PAIR(1));
-	mvprintw(5,0, "Exit");
+	mvprintw(7,0, "Exit");
 	attroff(COLOR_PAIR(1));
 }
 
@@ -46,6 +60,23 @@ void settings_interaction(){
 			}else if (selection == S_DEPTH){
 				if (MAX_DEPTH > 1)
 					MAX_DEPTH--;
+			}else if (selection == S_CAPTIME){
+				CAP_ENGINE = 0;
+			}else if (selection == S_TIMELIMIT){
+				if (SEARCH_MS > 1){
+					if (SEARCH_MS <= 50)
+						SEARCH_MS--;
+					else if (SEARCH_MS <= 200)
+						SEARCH_MS-=10;
+					else if (SEARCH_MS <= 400)
+						SEARCH_MS-=20;
+					else if (SEARCH_MS <= 1000)
+						SEARCH_MS-=50;
+					else
+						SEARCH_MS-=100;
+					
+
+				}
 			}
 		}else{
 			if (selection < buttons - 1)
@@ -57,6 +88,22 @@ void settings_interaction(){
 				stop2048 = 1;
 			}else if (selection == S_DEPTH){
 				MAX_DEPTH++;
+			}else if (selection == S_CAPTIME){
+				CAP_ENGINE = 1;
+			}else if (selection == S_TIMELIMIT){
+				if (SEARCH_MS >= 1000)
+					SEARCH_MS+=100;
+				else if (SEARCH_MS >= 400)
+					SEARCH_MS+=50;
+				else if (SEARCH_MS >= 200)
+					SEARCH_MS+=20;
+				else if (SEARCH_MS >= 50)
+					SEARCH_MS+=10;
+				else
+					SEARCH_MS++;
+
+
+
 			}
 		}else{
 			if (selection > 0)
@@ -67,7 +114,7 @@ void settings_interaction(){
 			start_round();
 		}else if (selection == S_EXIT){
 			end_game();
-		}else if (selection == S_DEPTH || selection == S_STOP2048){
+		}else if (selection == S_DEPTH || selection == S_STOP2048 || selection == S_CAPTIME || selection == S_TIMELIMIT){
 			locked = !locked;
 		}
 	}else if (key == 10){

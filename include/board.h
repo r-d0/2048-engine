@@ -8,6 +8,7 @@
 #define u8 uint8_t
 
 extern struct timespec start, start_frame, end;
+extern int depth_reached;
 
 extern u64 board;
 extern int score;

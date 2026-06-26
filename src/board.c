@@ -4,6 +4,7 @@
 u64 board;
 int natural_4s = 0;
 int score;
+int depth_reached;
 struct timespec start, end, start_frame;
 
 #define TDIFF(a, b) ((b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9)
@@ -33,7 +34,7 @@ void draw_board(){
 		y += 3;
 	}
 	mvprintw(0,0,"Score: %d",score);
-	mvprintw(24,0,"Time: %0.6lf, dt: %0.6lf",TDIFF(start, end), TDIFF(start_frame, end));
+	mvprintw(24,0,"Time: %0.6lf, dt: %0.6lf, depth: %d",TDIFF(start, end), TDIFF(start_frame, end), depth_reached);
 }
 
 u16 scan_empty(u64 b){

@@ -31,6 +31,7 @@ void start_round(){
 	score = 0;
 	natural_4s=0;
 	add_random();
+	depth_reached = 0;
 }
 
 
