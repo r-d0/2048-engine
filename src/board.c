@@ -38,12 +38,13 @@ void draw_board(){
 }
 
 u16 scan_empty(u64 b){
-	u16 empty = 0;
+	u64 a = b | (b >> 1) | (b >> 2) | (b >> 3);
+	a = ~a & 0x1111111111111111ULL;
+	u16 result = 0;
 	for (int i = 0; i < 16; i++){
-		if (!(b & (0xfull << (i << 2))))
-			empty |= 1ull << i;
+		result |= ((a >> (i*4)) & 1) << i;
 	}
-	return empty;
+	return result;
 }
 
 void add_random(){

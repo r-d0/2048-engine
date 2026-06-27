@@ -1,4 +1,4 @@
-CFLAGS := -Wall -Werror -MMD -MP -Iinclude 
+CFLAGS := -Wall -Werror -MMD -MP -Iinclude -O2
 LDFLAGS := -lncurses -lm
 
 SRC := $(wildcard src/*.c)

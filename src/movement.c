@@ -2,7 +2,7 @@
 #include <math.h>
 #include <unistd.h>
 
-char mask = 0xf;
+int mask = 0xf;
 
 struct timespec search_start;
 
@@ -61,20 +61,11 @@ u64 transpose(u64 b) {
 
 
 u64 move_left(u64 b){
-	u64 result = 0;
-	for (int row = 0; row < 4; row++){
-		result |= (u64)left_table[(b >> (row * 16)) & 0xffff] << (row * 16);
-	}
-	return result;
+	return (u64)left_table[b  & 0xffff] | (u64)left_table[(b >> 16) & 0xffff] << 16 | (u64)left_table[(b >> 32) & 0xffff] << 32 | (u64)left_table[(b >> 48) & 0xffff] << 48; 
 }
 
 u64 move_right(u64 b) {
-    u64 result = 0;
-    for (int row = 0; row < 4; row++) {
-        u16 rev = reverse_row((b >> (row*16)) & 0xffff);
-        result |= (u64)reverse_row(left_table[rev]) << (row*16);
-    }
-    return result;
+    return (u64)reverse_row(left_table[b & 0xffff]) | (u64)reverse_row(left_table[(b >> 16) & 0xffff]) << 16 | (u64)reverse_row(left_table[(b >> 32) & 0xffff]) << 32 | (u64)reverse_row(left_table[(b >> 48) & 0xffff]) << 48;
 }
 
 u64 move_up(u64 b) {
@@ -97,12 +88,10 @@ u64 connect_move(u64 b, int move){
 	}
 }
 
-//TODO: game_over, evaluate, trymove, placetile
-//TODO: check if empty causes definition issues within engine - conflict with game_state
 
 typedef struct{
 	float prob;
-	char val;
+	int val;
 }TileProb;
 
 TileProb chances[2] = {
@@ -142,80 +131,88 @@ static int game_over(u64 b){
 	return 1;
 }
 
-//TODO: monotonicity, smoothness, log2, max_tile_corner
-//TODO: ADD math.h and link against it
 
-static float monotonicity(u64 b){
+static inline float monotonicity(u64 b){
 	// reward tiles decreasing consistently in one direction
 	float result = 0;
-	for (char row = 0; row < 4; row++){
+	for (int row = 0; row < 4; row++){
 		float inc = 0, dec = 0;
-		for (char col = 0; col < 3; col++){
-			float square_val = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dest_val = (b >> (((row << 2) | (col+1)) << 2)) & 0xf;
-			if (square_val > dest_val) dec += square_val - dest_val;
-			if (square_val < dest_val) inc += dest_val - square_val;
+		float prev = (b >> (row << 4)) & 0xf;
+		for (int col = 1; col < 4; col++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float dif = prev - cur;
+			dec += fmaxf(dif,0);
+			inc += fmaxf(-dif, 0);
+			prev = cur;
 		}
-		result -= (inc < dec) ? inc : dec;
+		result -= fminf(inc,dec);
 	}
-	for (char col = 0; col < 4; col++){
+	for (int col = 0; col < 4; col++){
 		float inc = 0, dec = 0;
-		for (char row = 0; row < 3; row++){
-			float square_val = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dest_val = (b >> ((((row+1) << 2) | col) << 2)) & 0xf;
-			if (square_val > dest_val) dec += square_val - dest_val;
-			if (square_val < dest_val) inc += dest_val - square_val;
+		float prev = (b >> (col << 2))  & 0xf;
+		for (int row = 1; row < 4; row++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float dif = prev - cur;
+			dec += fmaxf(dif,0);
+			inc += fmaxf(-dif, 0);
+			prev = cur;
 		}
-		result -= (inc < dec) ? inc : dec;
+		result -= fminf(inc, dec);
 	}
 	return result;
 }
 
-static float smoothness (u64 b){
+static inline float smoothness (u64 b){
 	// Punish boards with large differences between side by side tiles
 	float result = 0;
-	for (char row = 0; row < 4; row++){
-		for (char col = 0; col < 3; col++){
-			float square_val = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dest_val = (b >> ((((row + 1) << 2) | col) << 2)) & 0xf;
-			if (square_val && dest_val)
-				result -= fabsf(square_val - dest_val);
+	for (int row = 0; row < 4; row++){
+		float prev = (b >> (row << 4)) & 0xf;
+		for (int col = 1; col < 4; col++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float m = (prev > 0 && cur > 0) ? 1.0f : 0.0f;
+			result -= fabsf(prev - cur) * m;
+			prev = cur;
 		}
 	}
-	for (char col = 0; col < 4; col++){
-		for (char row = 0; row < 3; row++){
-			float square_val = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dest_val = (b >> (((row << 2) | (col+1)) << 2)) & 0xf;
-			if (square_val && dest_val)
-				result -= fabsf(square_val - dest_val);
+	for (int col = 0; col < 4; col++){
+		float prev = (b >> (col << 2)) & 0xf;
+		for (int row = 1; row < 4; row++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float m = (prev > 0 && cur > 0) ? 1.0f : 0.0f;
+			result -= fabsf(prev - cur) * m;
+			prev = cur;
 		}
 	}
 	return result;
 }
 
-static float log2board(u64 b){
+float log2f_table[17] = {
+	-10.0f, 0.0f, 1.0f, 1.5850f,
+	2.0f, 2.3219f, 2.5850f, 2.8070f,
+	3.0f, 3.1699, 3.3219, 3.4594,
+	3.5850, 3.7004, 3.8074, 3.9069, 4.0f
+};
+
+static inline float log2board(u64 b){
 	// reward sparce board, but only up to a point, log2 means that dense boards are punished more than empty boards are rewarded
-	float result;
 	u16 empty = scan_empty(b);
-	result = empty ? log2f((float)__builtin_popcountll(empty)) : -10.0f; // could go wrong
-	return result;
+	return log2f_table[__builtin_popcountll(empty)];
 }
 
-static float max_tile_corner(u64 b){
-	char square = 1, max = 0;
+static inline float max_tile_corner(u64 b){
+	int square = 0, max = 0;
 	for (int i = 0; i < 16; i++){
-		char val = (b >> (i<<2)) & 0xf;
-		if (val > max){
-			max = val;
-			square = i;
-		}
+		int val = (b >> (i<<2)) & 0xf;
+		int m = -(val > max);
+		max = (val & m) | (max & ~m);
+		square = (i & m) | (square & ~m);
+
 	}
-	if (square == 0 || square == 3 || square == 12 || square == 15)
-		return (float)max;
-	return 0.0f;
+	int corner = (0x1001000000001001 >> square) & 1;
+	return (float)max * corner;
 }
 
-static int game_won (u64 b){
+static inline int game_won (u64 b){
 	for (int i = 0; i < 16; i++){
 		if ((b & mask) == 0xb)
 			return 1;
@@ -224,18 +221,22 @@ static int game_won (u64 b){
 	return 0;
 }
 
+static const float w_mono = 3.0f;
+static const float w_smooth = 2.7f;
+static const float w_empty = 2.7f;
+static const float w_corner = 1.0f;
+
 static float evaluate(u64 b){
 	float result = 0;
-	result += 3.0f*monotonicity(b);
-	result += 2.7f*smoothness(b);
-	result += 2.7f*log2board(b);
-	result += 1.0f*max_tile_corner(b);
-//	result += (float)(0u-1)*game_won(b);
+	result += w_mono*monotonicity(b);
+	result += w_smooth*smoothness(b);
+	result += w_empty*log2board(b);
+	result += w_corner*max_tile_corner(b);
 	return result;
 }
 
 
-static u64 placetile(u64 b, int cell, char val){
+static u64 placetile(u64 b, int cell, int val){
 	int pos = cell << 2;
 	return (b | (u64)val << pos); 
 }
@@ -253,46 +254,55 @@ static int get_game_score(){
 
 static int timed_out = 0;
 
+static int node_count=0;
+#define TIME_CHECK_INTERVAL 1
+
+static float p_cell_table[17] = {
+	0.0f, 1.0f, 0.5f, 0.3333f, 0.25f, 0.2f, 0.16667f, 0.142857f, 0.125f, 0.1111f, 0.1f, 0.090909f, 0.083333f, 0.076923f, 0.071429f, 0.066667f, 0.0625f
+};
+
 
 float engine(u64 b, int depth, int is_player){
-	if (CAP_ENGINE && timed_out) return 0;
-	if (CAP_ENGINE && elapsed_ms(search_start) > SEARCH_MS) {
-		timed_out = 1;
-		return 0;
+	if (CAP_ENGINE && !(node_count++ & (TIME_CHECK_INTERVAL-1))) {
+		if (elapsed_ms(search_start) > SEARCH_MS) {
+			timed_out = 1;
+			return 0;
+		}
 	}
-	if (depth == 0 || game_over(b))
+	if (depth == 0)
 		return evaluate(b);
 	if (is_player){
 		float best = -(float)(0u - 1);
+		int any_move = 0;
 		for (int move = 0; move < 4; move++){
 			u64 newboard = connect_move(b, move);
 			if (newboard == b)
 				continue;
+			any_move = 1;
 			float score = engine(newboard, depth - 1, 0);
-			best = (best > score) ? best : score;
+			best = fmaxf(best,score);
 		}
+		if (!any_move) return evaluate(b);
 		return best;
 	}else{
 		u16 empty = scan_empty(b);
 		if (!empty) return evaluate(b);
 		float total = 0;
-		float p_cell = 1.0 / __builtin_popcountll(empty);
+		float p_cell = p_cell_table[__builtin_popcountll(empty)];
+		float p09= p_cell * 0.9f;
+		float p01= p_cell * 0.1f;
 		for (int cell = 0; cell < 16; cell++){
 			if (!((empty >> cell) & 1))
 				continue;
-			for (int i = 0; i < 2; i++){
-				float prob = chances[i].prob;
-				char val = chances[i].val;
-				u64 newboard = placetile(b, cell, val);
-				float score = engine(newboard, depth - 1, 1);
-				total += p_cell * prob * score;
-
-			}
+			u64 nb1 = placetile(b, cell, 1);
+			total += p09 * engine(nb1, depth-1, 1);
+			u64 nb2 = placetile(b, cell, 2);
+			total += p01 * engine(nb2, depth-1, 1);
 		}
 		return total;
-
 	}
 }
+
 
 static int best_move(u64 b, int depth){
 	int best = 0;
@@ -317,6 +327,7 @@ int best_move_timed(u64 b){
 	int best = 0;
 	for (int depth = 1; depth < MAX_DEPTH; depth++){
 		timed_out = 0;
+		node_count = 0;
 		int result = best_move(b, depth);
 		if (timed_out) break;
 		best = result;
@@ -341,7 +352,11 @@ void try_auto(){
 
 void handle_movement(){
 	if ((unsigned int)key - 258 < 4){
-		board = connect_move(board,key - 258);
+		u64 newboard = connect_move(board,key - 258);
+		if (board == newboard)
+			return;
+		board = newboard;
+
 		score = get_game_score();
 		add_random();
 	}
