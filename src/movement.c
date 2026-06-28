@@ -6,6 +6,16 @@ int mask = 0xf;
 
 struct timespec search_start;
 
+#define TT_SIZE 1048576 // 1 << 20
+#define TT_MASK 1048575 // TT_SIZE - 1
+
+typedef struct{
+	u64 key;
+	u64 val;
+}TTEntry;
+
+TTEntry tt[TT_SIZE];
+
 static inline double elapsed_ms(struct timespec start) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -14,16 +24,25 @@ static inline double elapsed_ms(struct timespec start) {
 }
 
 
-typedef struct{
-	u64 key;
-	float val;
-	u8 depth;
-}TTEntry;
 
-#define TT_SIZE 1048576 // 1 << 20
-#define TT_MASK 1048575 // TT_SIZE - 1
+static inline void tt_store(u64 board, float score, u8 depth){
+	u64 val_bits = ((u64)depth << 32) | *(u32*)&score;
+	TTEntry* e = &tt[board & TT_MASK];
+	e->val = val_bits;
+	e->key = board ^ val_bits;
+}
 
-TTEntry tt[TT_SIZE];
+static inline int tt_lookup(u64 board, u8 depth, float* out){
+	TTEntry *e = &tt[board & TT_MASK];
+	u64 val_bits = e->val;
+
+	if ((e->key ^ val_bits) != board) return 0;
+	if (depth > (val_bits >> 32)) return 0;
+	u32 score_bits = (u32)(val_bits & 0xffffffff);
+	*out = *(float*)&score_bits;
+	return 1;
+
+}
 
 int MAX_DEPTH = 10;
 int SEARCH_MS = 100;
@@ -259,9 +278,11 @@ float engine(u64 b, int depth, int is_player, float cprob){
 	}else{
 		u16 empty = scan_empty(b);
 		if (!empty) return evaluate(b);
-		TTEntry* e = &tt[b & TT_MASK];
-		if (e->key == b && e->depth >= depth)
-			return e->val;
+		float ttval;
+		int hit = tt_lookup(b, depth, &ttval);
+		if (hit)
+			return ttval;
+
 		float total = 0;
 		float p_cell = p_cell_table[__builtin_popcountll(empty)];
 		float p09= p_cell * 0.9f;
@@ -276,7 +297,7 @@ float engine(u64 b, int depth, int is_player, float cprob){
 			if (p01 * cprob > CPROB_THRESH)
 				total += p01 * engine(nb2, depth-1, 1, cprob * p09);
 		}
-		*e = (TTEntry){b, total, depth};
+		tt_store(board, total, depth);
 		return total;
 	}
 }
