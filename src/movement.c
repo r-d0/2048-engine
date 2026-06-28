@@ -18,29 +18,79 @@ int SEARCH_MS = 100;
 int CAP_ENGINE = 1;
 int stop2048 = 0;
 
-u16 left_table[65536];
 
-void precompute_rows(){
-	for (int  row = 0; row < 65536; row++){
-		u8 tiles[] = {
-			row & 0xf,
-			(row >> 4) & 0xf,
-			(row >> 8) & 0xf,
-			(row >> 12) & 0xf,
-		};
-		u8 out[4] = {0};
-		int free = 0;
-		int merged[4] = {0};
-		for (int i = 0; i < 4; i++){
-			if (!tiles[i]) continue;
-			if (free && out[free-1] == tiles[i] && !merged[free-1]){
-				out[free-1]++;
-				merged[free-1] = 1;
-			}else
-				out[free++] = tiles[i];
-		}
-		left_table[row] = out[0] | out[1] << 4 | out[2] << 8 | out[3] << 12;
-	}
+u16 left_table[65536];
+float heur_table[65536];
+
+#define MONO_POWER   4.0f
+#define MONO_WEIGHT  47.0f
+#define SUM_POWER    3.5f
+#define SUM_WEIGHT   11.0f
+#define MERGE_WEIGHT 700.0f
+#define EMPTY_WEIGHT 270.0f
+#define LOST_PENALTY 200000.0f
+
+void precompute_rows() {
+    for (int row = 0; row < 65536; row++) {
+        int t[4] = {
+            row & 0xf,
+            (row >> 4) & 0xf,
+            (row >> 8) & 0xf,
+            (row >> 12) & 0xf,
+        };
+
+        // --- move table ---
+        u8 out[4] = {0};
+        int free = 0;
+        int merged[4] = {0};
+        for (int i = 0; i < 4; i++) {
+            if (!t[i]) continue;
+            if (free && out[free-1] == t[i] && !merged[free-1]) {
+                out[free-1]++;
+                merged[free-1] = 1;
+            } else {
+                out[free++] = t[i];
+            }
+        }
+        left_table[row] = out[0] | out[1]<<4 | out[2]<<8 | out[3]<<12;
+
+        // --- heuristic table ---
+        float sum = 0;
+        int empty = 0, merges = 0;
+        int prev = 0, counter = 0;
+
+        for (int i = 0; i < 4; i++) {
+            int rank = t[i];
+            sum += powf(rank, SUM_POWER);
+            if (rank == 0) {
+                empty++;
+            } else {
+                if (prev == rank) {
+                    counter++;
+                } else if (counter > 0) {
+                    merges += 1 + counter;
+                    counter = 0;
+                }
+                prev = rank;
+            }
+        }
+        if (counter > 0)
+            merges += 1 + counter;
+
+        float mono_left = 0, mono_right = 0;
+        for (int i = 1; i < 4; i++) {
+            if (t[i-1] > t[i])
+                mono_left  += powf(t[i-1], MONO_POWER) - powf(t[i], MONO_POWER);
+            else
+                mono_right += powf(t[i],   MONO_POWER) - powf(t[i-1], MONO_POWER);
+        }
+
+        heur_table[row] = LOST_PENALTY
+            + EMPTY_WEIGHT * empty
+            + MERGE_WEIGHT * merges
+            - MONO_WEIGHT  * fminf(mono_left, mono_right)
+            - SUM_WEIGHT   * sum;
+    }
 }
 
 u16 reverse_row(u16 row){
@@ -57,6 +107,7 @@ u64 transpose(u64 b) {
       | ((t & 0x00ff00ff00000000ULL) >> 24);
     return t;
 }
+
 
 
 
@@ -131,35 +182,73 @@ static int game_over(u64 b){
 	return 1;
 }
 
+/*
+static const float snake0[16] = {
+	15, 14, 13, 12,
+	8, 9, 10, 11,
+	7, 6, 5, 4,
+	0, 1, 2, 3
+};
+static const float snake1[16] = {
+	12, 13, 14, 15,
+	11, 10, 9, 8,
+	4, 5, 6, 7,
+	3, 2, 1, 0
+};
+static const float snake2[16] = {
+	0, 1, 2, 3,
+	7, 6, 5, 4,
+	8, 9, 10, 11,
+	15, 14, 13, 12
+};
+static const float snake3[16] = {
+	3, 2, 1, 0,
+	4, 5, 6, 7,
+	11, 10, 9, 8,
+	12, 13, 14, 15
+};
 
-   static inline float monotonicity(u64 b){
-// reward tiles decreasing consistently in one direction
-float result = 0;
-for (int row = 0; row < 4; row++){
-float inc = 0, dec = 0;
-float prev = (b >> (row << 4)) & 0xf;
-for (int col = 1; col < 4; col++){
-float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-float dif = prev - cur;
-dec += fmaxf(dif,0);
-inc += fmaxf(-dif, 0);
-prev = cur;
+static inline float snake_score(u64 b){
+	float s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+	for (int i = 0; i < 16; i++){
+		float val = (b >> (i<<2)) & mask;
+		s0 += val * snake0[i];
+		s1 += val * snake1[i];
+		s2 += val * snake2[i];
+		s3 += val * snake3[i];
+	}
+	mvprintw(20, 0, "s0:%.1f s1:%.1f s2:%.1f s3:%.1f", s0, s1, s2, s3);
+	return fmaxf(fmaxf(s0, s1), fmaxf(s2,s3));
 }
-result -= fminf(inc,dec);
-}
-for (int col = 0; col < 4; col++){
-float inc = 0, dec = 0;
-float prev = (b >> (col << 2))  & 0xf;
-for (int row = 1; row < 4; row++){
-float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-float dif = prev - cur;
-dec += fmaxf(dif,0);
-inc += fmaxf(-dif, 0);
-prev = cur;
-}
-result -= fminf(inc, dec);
-}
-return result;
+
+static inline float monotonicity(u64 b){
+	// reward tiles decreasing consistently in one direction
+	float result = 0;
+	for (int row = 0; row < 4; row++){
+		float inc = 0, dec = 0;
+		float prev = (b >> (row << 4)) & 0xf;
+		for (int col = 1; col < 4; col++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float dif = prev - cur;
+			dec += fmaxf(dif,0);
+			inc += fmaxf(-dif, 0);
+			prev = cur;
+		}
+		result -= fminf(inc,dec);
+	}
+	for (int col = 0; col < 4; col++){
+		float inc = 0, dec = 0;
+		float prev = (b >> (col << 2))  & 0xf;
+		for (int row = 1; row < 4; row++){
+			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+			float dif = prev - cur;
+			dec += fmaxf(dif,0);
+			inc += fmaxf(-dif, 0);
+			prev = cur;
+		}
+		result -= fminf(inc, dec);
+	}
+	return result;
 }
 
 static inline float smoothness (u64 b){
@@ -199,6 +288,7 @@ static inline float log2board(u64 b){
 	return log2f_table[__builtin_popcountll(empty)];
 }
 
+
 static inline float max_tile_corner(u64 b){
 	int square = 0, max = 0;
 	for (int i = 0; i < 16; i++){
@@ -211,6 +301,8 @@ static inline float max_tile_corner(u64 b){
 	int corner = (0x1001000000001001 >> square) & 1;
 	return (float)max * corner;
 }
+*/
+
 
 static inline int game_won (u64 b){
 	for (int i = 0; i < 16; i++){
@@ -221,20 +313,34 @@ static inline int game_won (u64 b){
 	return 0;
 }
 
-static const float w_mono = 3.0f;
-static const float w_smooth = 2.7f;
-static const float w_empty = 2.7f;
-static const float w_corner = 1.0f;
+/*
+static const float w_snake = 5.0f;
+static const float w_mono = 0.0f;
+static const float w_smooth = 0.0f;
+static const float w_empty = 0.0f;
 
 static float evaluate(u64 b){
 	float result = 0;
-	result += w_mono*monotonicity(b);
+	result += w_snake*snake_score(b);
 	result += w_smooth*smoothness(b);
 	result += w_empty*log2board(b);
-	result += w_corner*max_tile_corner(b);
+	result += w_mono*monotonicity(b);
 	return result;
 }
 
+*/
+
+static inline float evaluate(u64 b) {
+    u64 t = transpose(b);
+    return heur_table[(b >> 0)  & 0xffff]
+         + heur_table[(b >> 16) & 0xffff]
+         + heur_table[(b >> 32) & 0xffff]
+         + heur_table[(b >> 48) & 0xffff]
+         + heur_table[(t >> 0)  & 0xffff]
+         + heur_table[(t >> 16) & 0xffff]
+         + heur_table[(t >> 32) & 0xffff]
+         + heur_table[(t >> 48) & 0xffff];
+}
 
 static u64 placetile(u64 b, int cell, int val){
 	int pos = cell << 2;
