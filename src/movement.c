@@ -65,7 +65,7 @@ u64 move_left(u64 b){
 }
 
 u64 move_right(u64 b) {
-    return (u64)reverse_row(left_table[b & 0xffff]) | (u64)reverse_row(left_table[(b >> 16) & 0xffff]) << 16 | (u64)reverse_row(left_table[(b >> 32) & 0xffff]) << 32 | (u64)reverse_row(left_table[(b >> 48) & 0xffff]) << 48;
+    return (u64)reverse_row(left_table[reverse_row(b & 0xffff)]) | (u64)reverse_row(left_table[reverse_row((b >> 16) & 0xffff)]) << 16 | (u64)reverse_row(left_table[reverse_row((b >> 32) & 0xffff)]) << 32 | (u64)reverse_row(left_table[reverse_row((b >> 48) & 0xffff)]) << 48;
 }
 
 u64 move_up(u64 b) {
@@ -132,34 +132,34 @@ static int game_over(u64 b){
 }
 
 
-static inline float monotonicity(u64 b){
-	// reward tiles decreasing consistently in one direction
-	float result = 0;
-	for (int row = 0; row < 4; row++){
-		float inc = 0, dec = 0;
-		float prev = (b >> (row << 4)) & 0xf;
-		for (int col = 1; col < 4; col++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dif = prev - cur;
-			dec += fmaxf(dif,0);
-			inc += fmaxf(-dif, 0);
-			prev = cur;
-		}
-		result -= fminf(inc,dec);
-	}
-	for (int col = 0; col < 4; col++){
-		float inc = 0, dec = 0;
-		float prev = (b >> (col << 2))  & 0xf;
-		for (int row = 1; row < 4; row++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dif = prev - cur;
-			dec += fmaxf(dif,0);
-			inc += fmaxf(-dif, 0);
-			prev = cur;
-		}
-		result -= fminf(inc, dec);
-	}
-	return result;
+   static inline float monotonicity(u64 b){
+// reward tiles decreasing consistently in one direction
+float result = 0;
+for (int row = 0; row < 4; row++){
+float inc = 0, dec = 0;
+float prev = (b >> (row << 4)) & 0xf;
+for (int col = 1; col < 4; col++){
+float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+float dif = prev - cur;
+dec += fmaxf(dif,0);
+inc += fmaxf(-dif, 0);
+prev = cur;
+}
+result -= fminf(inc,dec);
+}
+for (int col = 0; col < 4; col++){
+float inc = 0, dec = 0;
+float prev = (b >> (col << 2))  & 0xf;
+for (int row = 1; row < 4; row++){
+float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
+float dif = prev - cur;
+dec += fmaxf(dif,0);
+inc += fmaxf(-dif, 0);
+prev = cur;
+}
+result -= fminf(inc, dec);
+}
+return result;
 }
 
 static inline float smoothness (u64 b){
