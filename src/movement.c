@@ -13,6 +13,18 @@ static inline double elapsed_ms(struct timespec start) {
            (now.tv_nsec - start.tv_nsec) / 1e6;
 }
 
+
+typedef struct{
+	u64 key;
+	float val;
+	u8 depth;
+}TTEntry;
+
+#define TT_SIZE 1048576 // 1 << 20
+#define TT_MASK 1048575 // TT_SIZE - 1
+
+TTEntry tt[TT_SIZE];
+
 int MAX_DEPTH = 10;
 int SEARCH_MS = 100;
 int CAP_ENGINE = 1;
@@ -140,15 +152,6 @@ u64 connect_move(u64 b, int move){
 }
 
 
-typedef struct{
-	float prob;
-	int val;
-}TileProb;
-
-TileProb chances[2] = {
-	{0.9f, 1},
-	{0.1f, 2}
-};
 
 
 static int game_over(u64 b){
@@ -182,128 +185,6 @@ static int game_over(u64 b){
 	return 1;
 }
 
-/*
-static const float snake0[16] = {
-	15, 14, 13, 12,
-	8, 9, 10, 11,
-	7, 6, 5, 4,
-	0, 1, 2, 3
-};
-static const float snake1[16] = {
-	12, 13, 14, 15,
-	11, 10, 9, 8,
-	4, 5, 6, 7,
-	3, 2, 1, 0
-};
-static const float snake2[16] = {
-	0, 1, 2, 3,
-	7, 6, 5, 4,
-	8, 9, 10, 11,
-	15, 14, 13, 12
-};
-static const float snake3[16] = {
-	3, 2, 1, 0,
-	4, 5, 6, 7,
-	11, 10, 9, 8,
-	12, 13, 14, 15
-};
-
-static inline float snake_score(u64 b){
-	float s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-	for (int i = 0; i < 16; i++){
-		float val = (b >> (i<<2)) & mask;
-		s0 += val * snake0[i];
-		s1 += val * snake1[i];
-		s2 += val * snake2[i];
-		s3 += val * snake3[i];
-	}
-	mvprintw(20, 0, "s0:%.1f s1:%.1f s2:%.1f s3:%.1f", s0, s1, s2, s3);
-	return fmaxf(fmaxf(s0, s1), fmaxf(s2,s3));
-}
-
-static inline float monotonicity(u64 b){
-	// reward tiles decreasing consistently in one direction
-	float result = 0;
-	for (int row = 0; row < 4; row++){
-		float inc = 0, dec = 0;
-		float prev = (b >> (row << 4)) & 0xf;
-		for (int col = 1; col < 4; col++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dif = prev - cur;
-			dec += fmaxf(dif,0);
-			inc += fmaxf(-dif, 0);
-			prev = cur;
-		}
-		result -= fminf(inc,dec);
-	}
-	for (int col = 0; col < 4; col++){
-		float inc = 0, dec = 0;
-		float prev = (b >> (col << 2))  & 0xf;
-		for (int row = 1; row < 4; row++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float dif = prev - cur;
-			dec += fmaxf(dif,0);
-			inc += fmaxf(-dif, 0);
-			prev = cur;
-		}
-		result -= fminf(inc, dec);
-	}
-	return result;
-}
-
-static inline float smoothness (u64 b){
-	// Punish boards with large differences between side by side tiles
-	float result = 0;
-	for (int row = 0; row < 4; row++){
-		float prev = (b >> (row << 4)) & 0xf;
-		for (int col = 1; col < 4; col++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float m = (prev > 0 && cur > 0) ? 1.0f : 0.0f;
-			result -= fabsf(prev - cur) * m;
-			prev = cur;
-		}
-	}
-	for (int col = 0; col < 4; col++){
-		float prev = (b >> (col << 2)) & 0xf;
-		for (int row = 1; row < 4; row++){
-			float cur = (b >> (((row << 2) | col) << 2)) & 0xf;
-			float m = (prev > 0 && cur > 0) ? 1.0f : 0.0f;
-			result -= fabsf(prev - cur) * m;
-			prev = cur;
-		}
-	}
-	return result;
-}
-
-float log2f_table[17] = {
-	-10.0f, 0.0f, 1.0f, 1.5850f,
-	2.0f, 2.3219f, 2.5850f, 2.8070f,
-	3.0f, 3.1699, 3.3219, 3.4594,
-	3.5850, 3.7004, 3.8074, 3.9069, 4.0f
-};
-
-static inline float log2board(u64 b){
-	// reward sparce board, but only up to a point, log2 means that dense boards are punished more than empty boards are rewarded
-	u16 empty = scan_empty(b);
-	return log2f_table[__builtin_popcountll(empty)];
-}
-
-
-static inline float max_tile_corner(u64 b){
-	int square = 0, max = 0;
-	for (int i = 0; i < 16; i++){
-		int val = (b >> (i<<2)) & 0xf;
-		int m = -(val > max);
-		max = (val & m) | (max & ~m);
-		square = (i & m) | (square & ~m);
-
-	}
-	int corner = (0x1001000000001001 >> square) & 1;
-	return (float)max * corner;
-}
-*/
-
-
 static inline int game_won (u64 b){
 	for (int i = 0; i < 16; i++){
 		if ((b & mask) == 0xb)
@@ -313,22 +194,6 @@ static inline int game_won (u64 b){
 	return 0;
 }
 
-/*
-static const float w_snake = 5.0f;
-static const float w_mono = 0.0f;
-static const float w_smooth = 0.0f;
-static const float w_empty = 0.0f;
-
-static float evaluate(u64 b){
-	float result = 0;
-	result += w_snake*snake_score(b);
-	result += w_smooth*smoothness(b);
-	result += w_empty*log2board(b);
-	result += w_mono*monotonicity(b);
-	return result;
-}
-
-*/
 
 static inline float evaluate(u64 b) {
     u64 t = transpose(b);
@@ -362,13 +227,14 @@ static int timed_out = 0;
 
 static int node_count=0;
 #define TIME_CHECK_INTERVAL 1
+#define CPROB_THRESH 0.000001f
 
 static float p_cell_table[17] = {
 	0.0f, 1.0f, 0.5f, 0.3333f, 0.25f, 0.2f, 0.16667f, 0.142857f, 0.125f, 0.1111f, 0.1f, 0.090909f, 0.083333f, 0.076923f, 0.071429f, 0.066667f, 0.0625f
 };
 
 
-float engine(u64 b, int depth, int is_player){
+float engine(u64 b, int depth, int is_player, float cprob){
 	if (CAP_ENGINE && !(node_count++ & (TIME_CHECK_INTERVAL-1))) {
 		if (elapsed_ms(search_start) > SEARCH_MS) {
 			timed_out = 1;
@@ -385,7 +251,7 @@ float engine(u64 b, int depth, int is_player){
 			if (newboard == b)
 				continue;
 			any_move = 1;
-			float score = engine(newboard, depth - 1, 0);
+			float score = engine(newboard, depth - 1, 0, cprob);
 			best = fmaxf(best,score);
 		}
 		if (!any_move) return evaluate(b);
@@ -393,6 +259,9 @@ float engine(u64 b, int depth, int is_player){
 	}else{
 		u16 empty = scan_empty(b);
 		if (!empty) return evaluate(b);
+		TTEntry* e = &tt[b & TT_MASK];
+		if (e->key == b && e->depth >= depth)
+			return e->val;
 		float total = 0;
 		float p_cell = p_cell_table[__builtin_popcountll(empty)];
 		float p09= p_cell * 0.9f;
@@ -401,16 +270,21 @@ float engine(u64 b, int depth, int is_player){
 			if (!((empty >> cell) & 1))
 				continue;
 			u64 nb1 = placetile(b, cell, 1);
-			total += p09 * engine(nb1, depth-1, 1);
+			if (p09 * cprob > CPROB_THRESH)
+				total += p09 * engine(nb1, depth-1, 1, cprob * p09);
 			u64 nb2 = placetile(b, cell, 2);
-			total += p01 * engine(nb2, depth-1, 1);
+			if (p01 * cprob > CPROB_THRESH)
+				total += p01 * engine(nb2, depth-1, 1, cprob * p09);
 		}
+		*e = (TTEntry){b, total, depth};
 		return total;
 	}
 }
 
 
 static int best_move(u64 b, int depth){
+	timed_out = 0;
+	node_count = 0;
 	int best = 0;
 	depth_reached = depth;
 	float best_score = -(float)(0u-1);
@@ -418,7 +292,7 @@ static int best_move(u64 b, int depth){
 		u64 newboard = connect_move(b, move);
 		if (newboard == b)
 			continue;
-		float score = engine(newboard, depth-1, 0);
+		float score = engine(newboard, depth-1, 0, 1.0f);
 		if (score > best_score){
 			best_score = score;
 			best = move;
