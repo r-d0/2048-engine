@@ -26,11 +26,14 @@ static inline double elapsed_ms(struct timespec start) {
 
 
 static inline void tt_store(u64 board, float score, u8 depth){
-	u64 val_bits = ((u64)depth << 32) | *(u32*)&score;
+	u32 score_bits;
+	memcpy(&score_bits, &score, 4);
+	u64 val_bits = ((u64)depth << 32) | score_bits;
 	TTEntry* e = &tt[board & TT_MASK];
 	e->val = val_bits;
 	e->key = board ^ val_bits;
 }
+
 
 static inline int tt_lookup(u64 board, u8 depth, float* out){
 	TTEntry *e = &tt[board & TT_MASK];
@@ -39,7 +42,9 @@ static inline int tt_lookup(u64 board, u8 depth, float* out){
 	if ((e->key ^ val_bits) != board) return 0;
 	if (depth > (val_bits >> 32)) return 0;
 	u32 score_bits = (u32)(val_bits & 0xffffffff);
-	*out = *(float*)&score_bits;
+	float out_val;
+	memcpy(&out_val, &score_bits, 4);
+	*out = out_val;
 	return 1;
 
 }
@@ -295,9 +300,9 @@ float engine(u64 b, int depth, int is_player, float cprob){
 				total += p09 * engine(nb1, depth-1, 1, cprob * p09);
 			u64 nb2 = placetile(b, cell, 2);
 			if (p01 * cprob > CPROB_THRESH)
-				total += p01 * engine(nb2, depth-1, 1, cprob * p09);
+				total += p01 * engine(nb2, depth-1, 1, cprob * p01);
 		}
-		tt_store(board, total, depth);
+		tt_store(b, total, depth);
 		return total;
 	}
 }
@@ -322,7 +327,6 @@ static int best_move(u64 b, int depth){
 	return best;
 }
 
-
 int best_move_timed(u64 b){
 	clock_gettime(CLOCK_MONOTONIC, &search_start);
 	int best = 0;
@@ -336,6 +340,7 @@ int best_move_timed(u64 b){
 	}
 	return best;
 }
+
 
 void try_auto(){
 	clock_gettime(CLOCK_MONOTONIC, &start_frame);
