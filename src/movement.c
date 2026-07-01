@@ -1,6 +1,8 @@
 #include "movement.h"
 #include <math.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
 
 int mask = 0xf;
 
@@ -49,9 +51,10 @@ static inline int tt_lookup(u64 board, u8 depth, float* out){
 
 }
 
-int MAX_DEPTH = 10;
+CapStyle cap_style = CAP_NODES;
+int MAX_DEPTH = 7;
 int SEARCH_MS = 100;
-int CAP_ENGINE = 1;
+int SEARCH_NODES = 1000000;
 int stop2048 = 0;
 
 
@@ -249,8 +252,6 @@ static int get_game_score(){
 
 static int timed_out = 0;
 
-static int node_count=0;
-#define TIME_CHECK_INTERVAL 1
 #define CPROB_THRESH 0.000001f
 
 static float p_cell_table[17] = {
@@ -259,8 +260,16 @@ static float p_cell_table[17] = {
 
 
 float engine(u64 b, int depth, int is_player, float cprob){
-	if (CAP_ENGINE && !(node_count++ & (TIME_CHECK_INTERVAL-1))) {
+	if (timed_out)
+		return 0;
+	if (cap_style == CAP_TIME) {
 		if (elapsed_ms(search_start) > SEARCH_MS) {
+			timed_out = 1;
+			return 0;
+		}
+	}
+	if (cap_style == CAP_NODES){
+		if (tt_miss_nodes > SEARCH_NODES){
 			timed_out = 1;
 			return 0;
 		}
@@ -287,7 +296,7 @@ float engine(u64 b, int depth, int is_player, float cprob){
 		int hit = tt_lookup(b, depth, &ttval);
 		if (hit)
 			return ttval;
-
+		tt_miss_nodes++;
 		float total = 0;
 		float p_cell = p_cell_table[__builtin_popcountll(empty)];
 		float p09= p_cell * 0.9f;
@@ -310,7 +319,6 @@ float engine(u64 b, int depth, int is_player, float cprob){
 
 static int best_move(u64 b, int depth){
 	timed_out = 0;
-	node_count = 0;
 	int best = 0;
 	depth_reached = depth;
 	float best_score = -(float)(0u-1);
@@ -327,12 +335,11 @@ static int best_move(u64 b, int depth){
 	return best;
 }
 
-int best_move_timed(u64 b){
+int best_move_iterative(u64 b){
 	clock_gettime(CLOCK_MONOTONIC, &search_start);
 	int best = 0;
-	for (int depth = 1; depth < MAX_DEPTH; depth++){
+	for (int depth = 1; depth <= 25; depth++){
 		timed_out = 0;
-		node_count = 0;
 		int result = best_move(b, depth);
 		if (timed_out) break;
 		best = result;
@@ -342,11 +349,13 @@ int best_move_timed(u64 b){
 }
 
 
+
 void try_auto(){
 	clock_gettime(CLOCK_MONOTONIC, &start_frame);
+	tt_miss_nodes = 0;
 	int best;
-	if (CAP_ENGINE)
-		best= best_move_timed(board);
+	if (cap_style != CAP_DEPTH)
+		best= best_move_iterative(board);
 	else
 		best = best_move(board, MAX_DEPTH);
 	board = connect_move(board, best);
@@ -380,4 +389,3 @@ void handle_movement(){
 	}
 
 }
-

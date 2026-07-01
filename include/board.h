@@ -10,6 +10,8 @@
 
 extern struct timespec start, start_frame, end;
 extern int depth_reached;
+extern int tt_miss_nodes;
+extern int seed;
 
 extern u64 board;
 extern int score;

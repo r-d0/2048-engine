@@ -25,6 +25,7 @@ void init_state(){
 }
 
 void start_round(){
+	srand(seed);
 	init_state();
 	current_state = STATE_PLAYING;
 	board = 0;
